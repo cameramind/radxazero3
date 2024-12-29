@@ -47,6 +47,41 @@ alias git-force-pull='git fetch origin && git reset --hard origin/main && git cl
 ```
 
 
+## Aliasy
+
+Aby aliasy działały po restarcie systemu, należy je dodać do odpowiedniego pliku konfiguracyjnego powłoki. 
+
+2. Nadaj uprawnienia do wykonywania:
+```bash
+chmod +x setup_aliases.sh
+```
+3. Uruchom skrypt:
+```bash
+./setup_aliases.sh
+```
+
+Skrypt:
+1. Wykrywa używaną powłokę (bash lub zsh)
+2. Tworzy odpowiednie pliki konfiguracyjne jeśli nie istnieją
+3. Konfiguruje ładowanie aliasów przy starcie powłoki
+4. Dodaje przykładowe aliasy
+
+Aby dodać własny alias, możesz użyć:
+```bash
+add_alias "bash" "twoj_alias" "twoja_komenda"
+```
+
+Po wykonaniu skryptu, aby aktywować aliasy w bieżącej sesji, wykonaj:
+```bash
+source ~/.bashrc  # dla bash
+# lub
+source ~/.zshrc   # dla zsh
+```
+
+Wszystkie dodane aliasy będą działały po ponownym uruchomieniu systemu.
+
+
+
 ## Run
 
 Make it executable:
