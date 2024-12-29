@@ -1,5 +1,46 @@
 # radxazero3
 
+
+If you want to force a git pull and replace all local changes, here are the safest approaches:
+
+1. Method 1 - Fetch and reset (Safest):
+```bash
+git fetch origin
+git reset --hard origin/main  # or origin/master, depending on your branch name
+```
+
+2. Method 2 - Clean and pull:
+```bash
+git reset --hard HEAD
+git clean -fd
+git pull
+```
+
+3. Method 3 - Most aggressive (use with caution):
+```bash
+git fetch origin
+git reset --hard origin/main
+git clean -fd
+```
+
+4. If you have local commits you want to discard:
+```bash
+git reset --hard @{u}
+```
+
+Important notes:
+- `--hard` will delete all local changes
+- `clean -fd` removes untracked files and directories
+- Always make sure to backup important changes before using these commands
+- Replace `main` with your branch name if different
+
+If you want to create a one-line alias for this in your `.bashrc` or `.zshrc`:
+```bash
+alias git-force-pull='git fetch origin && git reset --hard origin/main && git clean -fd'
+```
+
+
+
 Make it executable:
 ```bash
 chmod +x install_docker.sh
