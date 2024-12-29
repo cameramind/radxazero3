@@ -7,6 +7,14 @@ NC='\033[0m'
 
 echo -e "${GREEN}=== Instalator Skanera Kamer ===${NC}"
 
+
+# Sprawdź czy system jest oparty na Debianie
+if command -v apt &> /dev/null; then
+    echo -e "${YELLOW}Instaluję wymagane pakiety...${NC}"
+    sudo apt update
+    sudo apt install -y python3 python3-pip python3-venv python3-dev build-essential
+fi
+
 # Sprawdź czy Python jest zainstalowany
 if ! command -v python3 &> /dev/null; then
     echo -e "${YELLOW}Python 3 nie jest zainstalowany. Instaluję...${NC}"
