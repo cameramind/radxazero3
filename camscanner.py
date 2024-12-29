@@ -1,32 +1,42 @@
+#!/usr/bin/env python3
 import socket
 import ipaddress
 import concurrent.futures
 import subprocess
+import netifaces
+import sys
 from typing import List, Dict
 
-def get_local_network() -> str:
-    """Get the local network address range"""
-    # Get local IP address by creating a temporary socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(('8.8.8.8', 80))
-        local_ip = s.getsockname()[0]
-    except Exception:
-        local_ip = '127.0.0.1'
-    finally:
-        s.close()
+def get_network_interfaces() -> Dict[str, Dict]:
+    """Get all network interfaces and their IP addresses"""
+    interfaces = {}
     
-    # Return network in CIDR notation (assuming /24 subnet)
-    return '.'.join(local_ip.split('.')[:-1]) + '.0/24'
+    for iface in netifaces.interfaces():
+        addrs = netifaces.ifaddresses(iface)
+        if netifaces.AF_INET in addrs:  # If interface has IPv4
+            for addr in addrs[netifaces.AF_INET]:
+                if 'addr' in addr and 'netmask' in addr:
+                    interfaces[iface] = {
+                        'ip': addr['addr'],
+                        'netmask': addr['netmask']
+                    }
+    return interfaces
+
+def ip_to_network(ip: str, netmask: str) -> str:
+    """Convert IP and netmask to CIDR notation"""
+    network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
+    return str(network)
 
 def ping_host(ip: str) -> bool:
     """Ping a host to check if it's online"""
     try:
-        # Using subprocess.run instead of os.system for better security
+        # Dostosowanie komendy ping dla różnych systemów
+        param = '-n' if sys.platform.lower() == 'windows' else '-c'
         result = subprocess.run(
-            ['ping', '-c', '1', '-W', '1', ip],
+            ['ping', param, '1', ip],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            timeout=1
         )
         return result.returncode == 0
     except Exception:
@@ -50,7 +60,9 @@ def identify_device(ip: str) -> Dict:
         554,   # RTSP
         8000,  # Alternative HTTP
         8080,  # Alternative HTTP
-        9000   # Alternative HTTP
+        9000,  # Alternative HTTP
+        37777, # Dahua
+        34567  # HikVision
     ]
     
     device_info = {
@@ -60,50 +72,109 @@ def identify_device(ip: str) -> Dict:
         'possible_camera': False
     }
     
-    # Check if host is online
     device_info['is_online'] = ping_host(ip)
     
     if device_info['is_online']:
-        # Scan common camera ports
         for port in camera_ports:
             if scan_port(ip, port):
                 device_info['open_ports'].append(port)
-        
-        # If device has any of these ports open, it might be a camera
         device_info['possible_camera'] = len(device_info['open_ports']) > 0
     
     return device_info
 
-def scan_network() -> List[Dict]:
-    """Scan the local network for potential cameras"""
-    network = get_local_network()
-    ip_list = [str(ip) for ip in ipaddress.IPv4Network(network)]
-    results = []
+def scan_network(network: str, max_workers: int = 50) -> List[Dict]:
+    """Scan the network for potential cameras"""
+    try:
+        ip_list = [str(ip) for ip in ipaddress.IPv4Network(network)]
+    except ValueError as e:
+        print(f"Błąd: Nieprawidłowy format sieci: {e}")
+        return []
     
-    # Use ThreadPoolExecutor for parallel scanning
-    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+    results = []
+    print(f"\nRozpoczynam skanowanie sieci {network}")
+    print("To może potrwać kilka minut...")
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_ip = {executor.submit(identify_device, ip): ip for ip in ip_list}
+        total = len(ip_list)
+        completed = 0
+        
         for future in concurrent.futures.as_completed(future_to_ip):
+            completed += 1
+            if completed % 10 == 0:  # Update progress every 10 IPs
+                print(f"Postęp: {completed}/{total} ({(completed/total*100):.1f}%)")
+            
             result = future.result()
             if result['is_online']:
                 results.append(result)
     
     return results
 
+def display_menu(interfaces: Dict[str, Dict]) -> None:
+    """Display interactive menu"""
+    print("\n=== Scanner Kamer IP ===")
+    print("\nDostępne interfejsy sieciowe:")
+    
+    for i, (iface, data) in enumerate(interfaces.items(), 1):
+        network = ip_to_network(data['ip'], data['netmask'])
+        print(f"{i}. {iface}: {data['ip']} ({network})")
+    
+    print("\n0. Skanuj własną podsieć")
+    print("q. Wyjście")
+
 def main():
-    print("Starting network scan for cameras...")
-    results = scan_network()
-    
-    # Print results
-    print("\nScan Results:")
-    print("-" * 50)
-    for device in results:
-        if device['possible_camera']:
-            print(f"\nPotential camera found:")
-            print(f"IP Address: {device['ip']}")
-            print(f"Open ports: {', '.join(map(str, device['open_ports']))}")
-    
-    print("\nScan complete!")
+    while True:
+        interfaces = get_network_interfaces()
+        display_menu(interfaces)
+        
+        choice = input("\nWybierz opcję: ").strip().lower()
+        
+        if choice == 'q':
+            print("Do widzenia!")
+            break
+        
+        network_to_scan = None
+        
+        if choice == '0':
+            custom_network = input("Podaj podsieć do skanowania (np. 192.168.1.0/24): ").strip()
+            try:
+                # Validate network format
+                ipaddress.IPv4Network(custom_network)
+                network_to_scan = custom_network
+            except ValueError:
+                print("Błędny format sieci! Użyj formatu CIDR (np. 192.168.1.0/24)")
+                continue
+        elif choice.isdigit() and 1 <= int(choice) <= len(interfaces):
+            iface = list(interfaces.keys())[int(choice)-1]
+            network_to_scan = ip_to_network(
+                interfaces[iface]['ip'],
+                interfaces[iface]['netmask']
+            )
+        else:
+            print("Nieprawidłowa opcja!")
+            continue
+        
+        if network_to_scan:
+            results = scan_network(network_to_scan)
+            
+            print("\nWyniki skanowania:")
+            print("-" * 50)
+            
+            if not results:
+                print("Nie znaleziono potencjalnych kamer w sieci.")
+            else:
+                for device in results:
+                    if device['possible_camera']:
+                        print(f"\nZnaleziono potencjalną kamerę:")
+                        print(f"Adres IP: {device['ip']}")
+                        print(f"Otwarte porty: {', '.join(map(str, device['open_ports']))}")
+            
+            input("\nNaciśnij Enter, aby kontynuować...")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nPrzerwano przez użytkownika. Do widzenia!")
+    except Exception as e:
+        print(f"\nWystąpił błąd: {e}")
