@@ -1,77 +1,96 @@
 #!/bin/bash
 
-# Skrypt konfiguruje przekierowanie ruchu sieciowego dla kamery IP
+# Skrypt konfiguruje przekierowanie ruchu sieciowego dla kamery IP używając nftables
 # Użycie: ./configure_camera.sh <interfejs_USB_ETH>
-# Przykład: ./configure_camera.sh enx0c0e764be017
 
-# Sprawdzanie czy skrypt jest uruchomiony z uprawnieniami roota
 if [ "$EUID" -ne 0 ]; then 
     echo "Uruchom skrypt z uprawnieniami roota (sudo)"
     exit 1
 fi
 
-# Sprawdzanie czy podano argument
 if [ "$#" -ne 1 ]; then
     echo "Użycie: $0 <interfejs_USB_ETH>"
-    echo "Przykład: $0 enx0c0e764be017"
     exit 1
 fi
 
 USB_INTERFACE=$1
 WIFI_INTERFACE="wlan0"
-
-# Domyślne adresy IP
 CAMERA_SUBNET="192.168.1.0/24"
 CAMERA_GATEWAY="192.168.1.1"
 CAMERA_IP="192.168.1.64"
 PUBLIC_CAMERA_IP="192.168.188.240"
 
-echo "Konfiguracja interfejsów sieciowych..."
-
-# Pobierz aktualny adres IP interfejsu WiFi
+# Pobierz adres IP WiFi
 WIFI_IP=$(ip -4 addr show $WIFI_INTERFACE | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
 if [ -z "$WIFI_IP" ]; then
     echo "Nie można znaleźć adresu IP dla interfejsu $WIFI_INTERFACE"
     exit 1
 fi
 
-echo "Adres WiFi: $WIFI_IP"
+echo "Konfiguracja interfejsów..."
 
-# Konfiguracja interfejsu USB-ETH
-echo "Konfiguracja interfejsu $USB_INTERFACE..."
+# Konfiguracja USB-ETH
 ip addr flush dev $USB_INTERFACE
 ip addr add $CAMERA_GATEWAY/24 dev $USB_INTERFACE
 ip link set $USB_INTERFACE up
 
-# Włączenie przekazywania pakietów
+# Włącz forwarding
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
-# Czyszczenie starych reguł iptables dla naszych adresów
-iptables -t nat -F  # Czyszczenie tablicy NAT
+# Konfiguracja nftables
+echo "Konfiguracja nftables..."
 
-# Konfiguracja przekierowania
-echo "Konfiguracja przekierowania ruchu..."
-iptables -t nat -A PREROUTING -d $PUBLIC_CAMERA_IP -j DNAT --to-destination $CAMERA_IP
-iptables -t nat -A POSTROUTING -s $CAMERA_SUBNET -j SNAT --to-source $WIFI_IP
+# Usuń istniejące reguły
+nft flush ruleset
 
-# Dodanie konfiguracji do /etc/network/interfaces
-echo "Zapisywanie trwałej konfiguracji..."
+# Podstawowa konfiguracja
+nft -f - << EOF
+table ip nat {
+    chain prerouting {
+        type nat hook prerouting priority 0;
+        ip daddr $PUBLIC_CAMERA_IP dnat to $CAMERA_IP
+    }
+    chain postrouting {
+        type nat hook postrouting priority 100;
+        ip saddr $CAMERA_SUBNET snat to $WIFI_IP
+    }
+}
+
+table ip filter {
+    chain forward {
+        type filter hook forward priority 0;
+        iif $WIFI_INTERFACE oif $USB_INTERFACE accept
+        iif $USB_INTERFACE oif $WIFI_INTERFACE accept
+    }
+}
+EOF
+
+# Zapisz konfigurację nftables
+nft list ruleset > /etc/nftables.conf
+
+# Konfiguracja interfejsu
 cat << EOF > /etc/network/interfaces.d/camera-config
-# Konfiguracja interfejsu kamery
 auto $USB_INTERFACE
 iface $USB_INTERFACE inet static
     address $CAMERA_GATEWAY
     netmask 255.255.255.0
 EOF
 
+# Dodaj uruchamianie nftables przy starcie
+systemctl enable nftables
+systemctl restart nftables
+
 echo "Konfiguracja zakończona!"
 echo "-----------------------------------"
-echo "Podsumowanie konfiguracji:"
-echo "Interfejs USB-ETH: $USB_INTERFACE"
-echo "Interfejs WiFi: $WIFI_INTERFACE"
-echo "Adres IP kamery w sieci wewnętrznej: $CAMERA_IP"
-echo "Adres IP kamery w sieci WiFi: $PUBLIC_CAMERA_IP"
-echo "Brama dla kamery: $CAMERA_GATEWAY"
+echo "Podsumowanie:"
+echo "USB-ETH: $USB_INTERFACE"
+echo "WiFi: $WIFI_INTERFACE ($WIFI_IP)"
+echo "Kamera (wewnętrzny): $CAMERA_IP"
+echo "Kamera (zewnętrzny): $PUBLIC_CAMERA_IP"
+echo "Brama: $CAMERA_GATEWAY"
 echo ""
-echo "Aby sprawdzić dostępność kamery, użyj:"
+echo "Sprawdź połączenie:"
 echo "ping $PUBLIC_CAMERA_IP"
+
+# Dodaj routing dla sieci kamery
+ip route add $CAMERA_SUBNET via $CAMERA_GATEWAY dev $USB_INTERFACE
