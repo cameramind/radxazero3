@@ -23,9 +23,6 @@ if ! command -v python3 &> /dev/null; then
     fi
 fi
 
-# Utwórz katalog projektu
-mkdir -p camera_scanner
-cd camera_scanner
 
 # Utwórz plik requirements.txt
 cat > requirements.txt << EOL
@@ -44,19 +41,19 @@ echo -e "${GREEN}Instaluję wymagane pakiety...${NC}"
 pip install -r requirements.txt
 
 # Utwórz skrypt uruchomieniowy
-cat > run_scanner.sh << 'EOL'
+cat > camscanner.sh << 'EOL'
 #!/bin/bash
 source venv/bin/activate
-python3 scanner.py
+python3 camscanner.py
 deactivate
 EOL
 
 # Nadaj uprawnienia wykonywania
-chmod +x scanner.py run_scanner.sh
+chmod +x camscanner.py camscanner.sh
 
 echo -e "${GREEN}Instalacja zakończona!${NC}"
-echo -e "Aby uruchomić skaner, użyj polecenia: ${YELLOW}./run_scanner.sh${NC}"
+echo -e "Aby uruchomić skaner, użyj polecenia: ${YELLOW}./camscanner.sh${NC}"
 
 # Aktywuj środowisko i uruchom skaner
 echo -e "${GREEN}Uruchamiam skaner...${NC}"
-./run_scanner.sh
+./camscanner.sh
