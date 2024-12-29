@@ -4,175 +4,311 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# Function for logging
+# Script Variables
+LOGFILE="/var/log/docker_install.log"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+BACKUP_DIR="/var/backups/docker_install_${TIMESTAMP}"
+REQUIRED_PACKAGES=(
+    "apt-transport-https"
+    "ca-certificates"
+    "curl"
+    "gnupg"
+    "lsb-release"
+    "software-properties-common"
+)
+DOCKER_PACKAGES=(
+    "docker-ce"
+    "docker-ce-cli"
+    "containerd.io"
+)
+
+# Logging functions
 log() {
-    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
+    local level=$1
+    local message=$2
+    local timestamp=$(date +'%Y-%m-%d %H:%M:%S')
+    echo -e "${timestamp} [$level] $message" | tee -a $LOGFILE
+}
+
+info() {
+    log "INFO" "${GREEN}$1${NC}"
+}
+
+warn() {
+    log "WARN" "${YELLOW}$1${NC}"
 }
 
 error() {
-    echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR:${NC} $1"
+    log "ERROR" "${RED}$1${NC}"
 }
 
-warning() {
-    echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] WARNING:${NC} $1"
+debug() {
+    log "DEBUG" "${BLUE}$1${NC}"
 }
 
-# Check if script is run as root
-if [ "$EUID" -ne 0 ]; then
-    error "Please run as root"
-    exit 1
-fi
-
-# Function to check command status
-check_status() {
-    if [ $? -eq 0 ]; then
-        log "$1 - OK"
+# System check functions
+check_system() {
+    info "Performing system checks..."
+    
+    # Check Debian version
+    if [ -f /etc/debian_version ]; then
+        debian_version=$(cat /etc/debian_version)
+        debug "Debian version: $debian_version"
     else
-        error "$1 - FAILED"
+        error "This is not a Debian system"
+        return 1
+    fi
+
+    # Check available disk space
+    disk_space=$(df -h / | awk 'NR==2 {print $4}')
+    debug "Available disk space: $disk_space"
+    
+    # Check memory
+    total_mem=$(free -h | awk '/^Mem:/ {print $2}')
+    debug "Total memory: $total_mem"
+    
+    # Check CPU
+    cpu_info=$(lscpu | grep "Model name" | cut -d ':' -f2 | xargs)
+    debug "CPU: $cpu_info"
+    
+    return 0
+}
+
+check_network() {
+    info "Checking network connectivity..."
+    
+    # Test DNS resolution
+    if ! host -t A debian.org >/dev/null 2>&1; then
+        error "DNS resolution failed"
+        return 1
+    fi
+    
+    # Test internet connectivity
+    if ! ping -c 1 debian.org >/dev/null 2>&1; then
+        error "Cannot ping debian.org"
+        return 1
+    }
+    
+    debug "Network check passed"
+    return 0
+}
+
+create_backup() {
+    info "Creating backup directory: $BACKUP_DIR"
+    mkdir -p $BACKUP_DIR
+
+    # Backup package list
+    dpkg --get-selections > "$BACKUP_DIR/packages.list"
+    debug "Package list backed up"
+
+    # Backup sources
+    cp -r /etc/apt/sources.list* "$BACKUP_DIR/"
+    debug "APT sources backed up"
+
+    # Backup Docker configs if they exist
+    if [ -d /etc/docker ]; then
+        cp -r /etc/docker "$BACKUP_DIR/"
+        debug "Docker configs backed up"
+    fi
+}
+
+handle_package_installation() {
+    local package=$1
+    info "Installing package: $package"
+    
+    # Check if package is already installed
+    if dpkg -l | grep -q "^ii  $package "; then
+        debug "Package $package is already installed"
+        return 0
+    fi
+    
+    # Try to install package
+    if apt-get install -y $package --allow-downgrades 2>>$LOGFILE; then
+        debug "Successfully installed $package"
+        return 0
+    else
+        error "Failed to install $package"
+        return 1
+    fi
+}
+
+remove_old_docker() {
+    info "Removing old Docker installations..."
+    local old_packages=(
+        "docker"
+        "docker-engine"
+        "docker.io"
+        "containerd"
+        "runc"
+    )
+    
+    for package in "${old_packages[@]}"; do
+        if dpkg -l | grep -q "^ii  $package "; then
+            debug "Removing $package"
+            apt-get remove -y $package 2>>$LOGFILE
+        else
+            debug "$package is not installed"
+        fi
+    done
+}
+
+update_system() {
+    info "Updating system packages..."
+    
+    # Update package lists
+    if ! apt-get update 2>>$LOGFILE; then
+        error "Failed to update package lists"
+        return 1
+    fi
+    debug "Package lists updated"
+    
+    # Get list of upgradable packages
+    local upgradable=$(apt list --upgradable 2>/dev/null | grep -v "Listing...")
+    if [ ! -z "$upgradable" ]; then
+        debug "Upgradable packages found:"
+        echo "$upgradable" >> $LOGFILE
+        
+        # Attempt safe upgrade
+        if ! apt-get dist-upgrade --allow-downgrades -y 2>>$LOGFILE; then
+            warn "Some packages could not be upgraded"
+            debug "Failed upgrade details in $LOGFILE"
+        fi
+    else
+        debug "No packages need upgrading"
+    fi
+}
+
+install_docker() {
+    info "Installing Docker..."
+    
+    # Add GPG key
+    debug "Adding Docker's GPG key"
+    if [ -f /usr/share/keyrings/docker-archive-keyring.gpg ]; then
+        debug "Removing old Docker GPG key"
+        rm /usr/share/keyrings/docker-archive-keyring.gpg
+    fi
+    
+    if ! curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg; then
+        error "Failed to add Docker's GPG key"
+        return 1
+    fi
+    
+    # Add repository
+    debug "Adding Docker repository"
+    echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian \
+    $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    # Update package lists
+    apt-get update
+    
+    # Install Docker packages
+    for package in "${DOCKER_PACKAGES[@]}"; do
+        if ! handle_package_installation $package; then
+            error "Docker installation failed"
+            return 1
+        fi
+    done
+    
+    # Install Docker Compose
+    debug "Installing Docker Compose"
+    if ! handle_package_installation docker-compose; then
+        error "Docker Compose installation failed"
+        return 1
+    fi
+}
+
+configure_docker() {
+    info "Configuring Docker..."
+    
+    # Start and enable Docker service
+    debug "Starting Docker service"
+    systemctl start docker
+    systemctl enable docker
+    
+    # Add current user to docker group
+    if [ -n "$SUDO_USER" ]; then
+        debug "Adding user $SUDO_USER to docker group"
+        usermod -aG docker $SUDO_USER
+    fi
+}
+
+test_docker() {
+    info "Testing Docker installation..."
+    
+    # Check Docker version
+    if docker --version >>$LOGFILE 2>&1; then
+        debug "Docker version check passed"
+    else
+        error "Docker version check failed"
+        return 1
+    fi
+    
+    # Check Docker Compose version
+    if docker-compose --version >>$LOGFILE 2>&1; then
+        debug "Docker Compose version check passed"
+    else
+        error "Docker Compose version check failed"
+        return 1
+    fi
+    
+    # Test Docker functionality
+    if docker run --rm hello-world >>$LOGFILE 2>&1; then
+        debug "Docker hello-world test passed"
+    else
+        error "Docker hello-world test failed"
+        return 1
+    fi
+    
+    # Check Docker service status
+    if systemctl is-active --quiet docker; then
+        debug "Docker service is running"
+    else
+        error "Docker service is not running"
+        return 1
+    fi
+}
+
+# Main installation process
+main() {
+    # Initialize log file
+    echo "=== Docker Installation Log - $(date) ===" > $LOGFILE
+    info "Starting Docker installation process..."
+    
+    # Perform initial checks
+    check_system || exit 1
+    check_network || exit 1
+    
+    # Create backup
+    create_backup
+    
+    # Installation steps
+    remove_old_docker
+    update_system
+    install_docker
+    configure_docker
+    
+    # Test installation
+    if test_docker; then
+        info "Docker installation completed successfully!"
+        info "Log file is available at: $LOGFILE"
+    else
+        error "Docker installation failed. Check $LOGFILE for details"
         exit 1
     fi
 }
 
-# Function to check if a command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
+# Run main function
+main
 
-# Remove old versions
-log "Removing old Docker versions if they exist..."
-apt remove -y docker docker-engine docker.io containerd runc >/dev/null 2>&1
-
-# Update system
-log "Updating system packages..."
-apt update
-check_status "System update"
-
-# Handle package upgrades more carefully
-log "Checking for system upgrades..."
-if apt list --upgradable 2>/dev/null | grep -q "upgradable"; then
-    warning "Some packages can be upgraded. Attempting safe upgrade..."
-    apt-get dist-upgrade --allow-downgrades -y || {
-        warning "Full upgrade failed, continuing with installation..."
-    }
-else
-    log "System is up to date"
-fi
-
-# Install prerequisites
-log "Installing prerequisites..."
-apt install -y \
-    apt-transport-https \
-    ca-certificates \
-    curl \
-    gnupg \
-    lsb-release \
-    software-properties-common \
-    || {
-        error "Failed to install prerequisites"
-        exit 1
-    }
-check_status "Prerequisites installation"
-
-# Add Docker's official GPG key
-log "Adding Docker's GPG key..."
-if [ -f /usr/share/keyrings/docker-archive-keyring.gpg ]; then
-    warning "Docker GPG key already exists. Removing old key..."
-    rm /usr/share/keyrings/docker-archive-keyring.gpg
-fi
-
-curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-check_status "GPG key installation"
-
-# Add Docker repository
-log "Adding Docker repository..."
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian \
-  $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-check_status "Repository addition"
-
-# Update apt after adding Docker repository
-log "Updating package lists..."
-apt update
-check_status "Package lists update"
-
-# Install Docker
-log "Installing Docker..."
-apt install -y docker-ce docker-ce-cli containerd.io || {
-    error "Failed to install Docker"
-    exit 1
-}
-check_status "Docker installation"
-
-# Install Docker Compose
-log "Installing Docker Compose..."
-apt install -y docker-compose || {
-    error "Failed to install Docker Compose"
-    exit 1
-}
-check_status "Docker Compose installation"
-
-# Start and enable Docker service
-log "Starting Docker service..."
-systemctl start docker
-check_status "Docker service start"
-
-log "Enabling Docker service..."
-systemctl enable docker
-check_status "Docker service enable"
-
-# Add current user to docker group
-if [ -n "$SUDO_USER" ]; then
-    log "Adding user $SUDO_USER to docker group..."
-    usermod -aG docker $SUDO_USER
-    check_status "User addition to docker group"
-fi
-
-# Install additional development packages
-log "Installing additional development packages..."
-apt install -y \
-    git \
-    python3-pip \
-    python3-venv \
-    build-essential \
-    libssl-dev \
-    libffi-dev \
-    python3-dev || {
-        warning "Some development packages failed to install"
-    }
-
-# Verify installations
-log "Verifying installations..."
-if command_exists docker; then
-    docker_version=$(docker --version)
-    echo "Docker: $docker_version"
-else
-    error "Docker is not properly installed"
-fi
-
-if command_exists docker-compose; then
-    compose_version=$(docker-compose --version)
-    echo "Docker Compose: $compose_version"
-else
-    error "Docker Compose is not properly installed"
-fi
-
-# Test Docker installation
-log "Testing Docker installation..."
-if docker run hello-world >/dev/null 2>&1; then
-    log "Docker test successful!"
-else
-    error "Docker test failed. Please check the installation."
-fi
-
-# Final instructions
-echo -e "\n${GREEN}Installation completed!${NC}"
-if [ -n "$SUDO_USER" ]; then
-    echo -e "${YELLOW}Please log out and log back in for docker group changes to take effect.${NC}"
-fi
-
-echo -e "\nVerify installation with:"
-echo "docker --version"
-echo "docker-compose --version"
-echo "docker run hello-world"
+# Display completion message
+echo -e "\n${GREEN}Installation Summary:${NC}"
+echo -e "- Log file: $LOGFILE"
+echo -e "- Backup directory: $BACKUP_DIR"
+echo -e "\n${YELLOW}Next steps:${NC}"
+echo "1. Log out and log back in to use Docker without sudo"
+echo "2. Test with: docker run hello-world"
+echo -e "3. Check logs with: cat $LOGFILE\n"
