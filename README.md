@@ -145,8 +145,143 @@ Skrypt:
 
 Po uruchomieniu skryptu i podłączeniu urządzenia do portu USB, powinno ono automatycznie otrzymać adres IP z zakresu 192.168.2.2 - 192.168.2.10 i mieć dostęp do internetu.
 
+## bridge
+
+install 
+```bash    
+sudo apt-get install bridge-utils
+sudo apt-get install --reinstall bridge-utils
+echo $PATH
+which brctl
+```
+
+config
+
+```bash    
+ip link show type bridge
+sudo ip addr add 192.168.1.100/24 dev bridge0
+ip link show
+```
+
+test
+
+```bash    
+ip link show
+```
 
 
+Jeśli chcesz skonfigurować most od nowa, możesz
+
+Sprawdźmy do którego mostu jest aktualnie przypisany:
+```bash
+ip link show enx0c0e764be017
+```
 
 
+Usunąć obecny most:
+```bash
+sudo ip link set bridge0 down
+sudo ip link delete bridge0
+```
 
+Jeśli chcesz przenieść interfejs do bridge0, musisz najpierw usunąć go z obecnego mostu:
+```bash
+sudo ip link set enx0c0e764be017 nomaster
+```
+
+
+Stworzyć nowy z właściwą konfiguracją:
+```bash
+sudo ip link add name bridge0 type bridge
+sudo ip link set bridge0 up
+sudo ip addr add 192.168.188.251/24 dev bridge0
+```
+
+
+A następnie dodać do bridge0:
+```bash
+sudo brctl addif bridge0 enx0c0e764be017
+```
+
+
+## Prosty routing zamiast mostu
+
+ 
+
+Aby kamera miała adres z zakresu 192.168.188.* (np. 192.168.188.251) i maskę 255.255.255.0
+powinna być podłączona przez adapter USB-ETH (enx0c0e764be017) 
+by była widoczna w sieci WiFi (192.168.188.0/24), 
+najlepiej będzie skonfigurować prosty routing zamiast mostu. 
+
+1. Najpierw przypisz stały adres IP do interfejsu USB-ETH, żeby kamera była widoczna bezpośrednio w sieci WiFi 192.168.188.0/24. W tym przypadku powinna mieć adres z tej samej puli.
+
+```bash
+sudo ip addr add 192.168.188.250/32 dev enx0c0e764be017
+```
+
+2. Włącz forwarding IP w systemie:
+```bash
+sudo sysctl -w net.ipv4.ip_forward=1
+```
+
+3. Dodaj reguły NAT, aby ruch z sieci kamery mógł przechodzić do sieci WiFi:
+```bash
+sudo iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
+sudo iptables -A FORWARD -i wlan0 -o enx0c0e764be017 -m state --state RELATED,ESTABLISHED -j ACCEPT
+sudo iptables -A FORWARD -i enx0c0e764be017 -o wlan0 -j ACCEPT
+```
+
+
+3. Dodaj do /etc/network/interfaces dla trwałej konfiguracji:
+```bash
+sudo nano /etc/network/interfaces
+```
+
+```
+auto enx0c0e764be017
+iface enx0c0e764be017 inet static
+    address 192.168.188.250
+    netmask 255.255.255.0
+```
+
+W tej konfiguracji:
++ Radxa WiFi: 192.168.188.203 
++ Interfejs USB-ETH i kamera: 192.168.188.250
+
+Czyli kamera będzie dostępna pod adresem 192.168.188.250
+
+Wszystkie urządzenia będą w tej samej sieci i będą mogły się bezpośrednio komunikować bez potrzeby routingu czy NAT.
+
+```bash
+sudo apt-get install nmap
+```
+  
+Możemy sprawdzić dostępność kamery Reolink na kilka sposobów:
+
+1. Najpierw podstawowy test łączności:
+```bash
+ping 192.168.188.250
+```
+
+2. Sprawdź czy kamera odpowiada na portach, które Reolink standardowo używa:
+```bash
+nc -zv 192.168.188.250 80    # sprawdza port HTTP
+nc -zv 192.168.188.250 443   # sprawdza port HTTPS
+nc -zv 192.168.188.250 9000  # typowy port RTSP dla Reolink
+```
+
+3. Możesz też użyć nmap do sprawdzenia otwartych portów:
+```bash
+sudo nmap -p- 192.168.188.250
+```
+
+4. W przeglądarce możesz spróbować otworzyć:
+```
+http://192.168.188.250
+https://192.168.188.250
+```
+
+Jeśli którykolwiek z tych testów się nie powiedzie, sprawdźmy:
+- Czy kamera jest zasilona
+- Czy kabel sieciowy jest dobrze podłączony
+- Czy interfejs enx0c0e764be017 ma poprawnie przypisany adres IP (możemy sprawdzić przez `ip addr show enx0c0e764be017`)
