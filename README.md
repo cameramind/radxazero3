@@ -1,6 +1,6 @@
 # radxazero3
 
-
+## Clone
 If you want to force a git pull and replace all local changes, here are the safest approaches:
 
 1. Method 1 - Fetch and reset (Safest):
@@ -40,6 +40,7 @@ alias git-force-pull='git fetch origin && git reset --hard origin/main && git cl
 ```
 
 
+## Run
 
 Make it executable:
 ```bash
@@ -72,4 +73,11 @@ Features:
 - Final verification test
 
 After running the script, you'll need to log out and back in for the docker group changes to take effect.
+
+
+![obraz](https://github.com/user-attachments/assets/f748b920-02fd-4214-9ac4-bd62f682d015)
+
+
+
+
 
