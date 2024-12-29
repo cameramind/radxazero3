@@ -278,7 +278,6 @@ sudo nmap -p- 192.168.188.250
 4. W przeglądarce możesz spróbować otworzyć:
 ```
 http://192.168.188.250
-https://192.168.188.250
 ```
 
 Jeśli którykolwiek z tych testów się nie powiedzie, sprawdźmy:
