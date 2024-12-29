@@ -84,6 +84,7 @@ Wszystkie dodane aliasy będą działały po ponownym uruchomieniu systemu.
 
 ## Run
 
+
 Make it executable:
 ```bash
 chmod +x install_docker.sh
@@ -118,6 +119,32 @@ After running the script, you'll need to log out and back in for the docker grou
 
 
 ![obraz](https://github.com/user-attachments/assets/f748b920-02fd-4214-9ac4-bd62f682d015)
+
+
+## Setup network
+
+
+
+### Nadaj uprawnienia do wykonywania:
+```bash
+sudo chmod +x setup-network-sharing.sh
+```
+
+### Uruchom skrypt:
+```bash
+sudo ./setup-network-sharing.sh
+```
+
+Skrypt:
+- Pokazuje listę dostępnych interfejsów
+- Pozwala wybrać interfejs z internetem (WiFi)
+- Pozwala wybrać interfejs USB do udostępnienia
+- Automatycznie konfiguruje wszystkie potrzebne ustawienia
+- Tworzy usługę systemową, która przywraca konfigurację po restarcie
+- Instaluje potrzebne pakiety (dnsmasq, iptables-persistent)
+
+Po uruchomieniu skryptu i podłączeniu urządzenia do portu USB, powinno ono automatycznie otrzymać adres IP z zakresu 192.168.2.2 - 192.168.2.10 i mieć dostęp do internetu.
+
 
 
 
