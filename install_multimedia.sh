@@ -87,17 +87,22 @@ install_multimedia() {
     apt-get install -y \
         libavcodec-extra \
         libdvd-pkg \
-        libavcodec-extra \
         libmpeg2-4 \
         libxvidcore4 \
         x264 \
         libmp3lame0 \
-        libfaac0 \
         libass9 \
-        libvpx7 \
+        libvpx6 \
         libvorbis0a \
         libtheora0 \
-        libx265-192
+        libx265-192 \
+        libaom0 \
+        libopus0 \
+        libva2 \
+        va-driver-all \
+        vdpau-driver-all \
+        mesa-va-drivers \
+        mesa-vdpau-drivers
     check_error "Nie udało się zainstalować dodatkowych kodeków"
 
     # Konfiguracja libdvd-pkg
