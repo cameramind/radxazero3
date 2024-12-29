@@ -48,8 +48,17 @@ apt remove -y docker docker-engine docker.io containerd runc >/dev/null 2>&1
 log "Updating system packages..."
 apt update
 check_status "System update"
-apt upgrade -y
-check_status "System upgrade"
+
+# Handle package upgrades more carefully
+log "Checking for system upgrades..."
+if apt list --upgradable 2>/dev/null | grep -q "upgradable"; then
+    warning "Some packages can be upgraded. Attempting safe upgrade..."
+    apt-get dist-upgrade --allow-downgrades -y || {
+        warning "Full upgrade failed, continuing with installation..."
+    }
+else
+    log "System is up to date"
+fi
 
 # Install prerequisites
 log "Installing prerequisites..."
@@ -59,7 +68,11 @@ apt install -y \
     curl \
     gnupg \
     lsb-release \
-    software-properties-common
+    software-properties-common \
+    || {
+        error "Failed to install prerequisites"
+        exit 1
+    }
 check_status "Prerequisites installation"
 
 # Add Docker's official GPG key
@@ -86,12 +99,18 @@ check_status "Package lists update"
 
 # Install Docker
 log "Installing Docker..."
-apt install -y docker-ce docker-ce-cli containerd.io
+apt install -y docker-ce docker-ce-cli containerd.io || {
+    error "Failed to install Docker"
+    exit 1
+}
 check_status "Docker installation"
 
 # Install Docker Compose
 log "Installing Docker Compose..."
-apt install -y docker-compose
+apt install -y docker-compose || {
+    error "Failed to install Docker Compose"
+    exit 1
+}
 check_status "Docker Compose installation"
 
 # Start and enable Docker service
@@ -119,21 +138,25 @@ apt install -y \
     build-essential \
     libssl-dev \
     libffi-dev \
-    python3-dev
-check_status "Development packages installation"
+    python3-dev || {
+        warning "Some development packages failed to install"
+    }
 
 # Verify installations
 log "Verifying installations..."
-docker_version=$(docker --version)
-compose_version=$(docker-compose --version)
-python_version=$(python3 --version)
-pip_version=$(pip3 --version)
+if command_exists docker; then
+    docker_version=$(docker --version)
+    echo "Docker: $docker_version"
+else
+    error "Docker is not properly installed"
+fi
 
-echo -e "\nInstalled versions:"
-echo "Docker: $docker_version"
-echo "Docker Compose: $compose_version"
-echo "Python: $python_version"
-echo "Pip: $pip_version"
+if command_exists docker-compose; then
+    compose_version=$(docker-compose --version)
+    echo "Docker Compose: $compose_version"
+else
+    error "Docker Compose is not properly installed"
+fi
 
 # Test Docker installation
 log "Testing Docker installation..."
@@ -144,12 +167,12 @@ else
 fi
 
 # Final instructions
-echo -e "\n${GREEN}Installation completed successfully!${NC}"
+echo -e "\n${GREEN}Installation completed!${NC}"
 if [ -n "$SUDO_USER" ]; then
     echo -e "${YELLOW}Please log out and log back in for docker group changes to take effect.${NC}"
 fi
 
-echo -e "\nYou can verify the installation with these commands:"
+echo -e "\nVerify installation with:"
 echo "docker --version"
 echo "docker-compose --version"
 echo "docker run hello-world"
