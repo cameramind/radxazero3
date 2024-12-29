@@ -90,7 +90,7 @@ check_network() {
     if ! ping -c 1 debian.org >/dev/null 2>&1; then
         error "Cannot ping debian.org"
         return 1
-    }
+    fi
     
     debug "Network check passed"
     return 0
