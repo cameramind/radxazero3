@@ -2,9 +2,8 @@
 
 ## Install debian
 
-[Resource Download | Radxa Docs](https://docs.radxa.com/en/zero/zero3/getting-started/download)
-
-+ [https://github.com/radxa-build/radxa-zero3/releases/download/b6/radxa-zero3_debian_bullseye_xfce_b6.img.xz](https://github.com/radxa-build/radxa-zero3/releases/download/b6/radxa-zero3_debian_bullseye_xfce_b6.img.xz)
++ [Radxa Docs](https://docs.radxa.com/en/zero/zero3/getting-started/download)
++ Download: [https://github.com/radxa-build/radxa-zero3/releases/download/b6/radxa-zero3_debian_bullseye_xfce_b6.img.xz](https://github.com/radxa-build/radxa-zero3/releases/download/b6/radxa-zero3_debian_bullseye_xfce_b6.img.xz)
 
 
 ## Clone
