@@ -134,17 +134,20 @@ test_all_components() {
     fi
 
     # Test VLC
-    if cvlc --version &> /dev/null; then
+    if vlc --version &> /dev/null; then
         log "VLC działa poprawnie"
-        cvlc --version | head -n1
+        vlc --version | head -n1
     else
         log "BŁĄD: VLC nie działa poprawnie"
     fi
 
     # Test odtwarzania przykładowego strumienia
-    log "Test odtwarzania przykładowego strumienia..."
-    if gst-launch-1.0 videotestsrc ! autovideosink -v &> /dev/null; then
+    log "Test odtwarzania przykładowego strumienia (5 sekund)..."
+    if timeout 5 gst-launch-1.0 videotestsrc ! autovideosink -v &> /dev/null; then
         log "Test odtwarzania przebiegł pomyślnie"
+    elif [ $? -eq 124 ]; then
+        # Timeout exit code is 124
+        log "Test odtwarzania zakończony po 5 sekundach (OK)"
     else
         log "BŁĄD: Test odtwarzania nie powiódł się"
     fi
@@ -169,6 +172,9 @@ gather_system_info() {
     echo "=== Sterowniki dźwięku ==="
     aplay -l
 }
+
+# Obsługa SIGINT (Ctrl+C)
+trap 'echo "Przerwano działanie skryptu"; exit 1' INT
 
 # Główna funkcja
 main() {
