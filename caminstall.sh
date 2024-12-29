@@ -42,3 +42,21 @@ source venv/bin/activate
 # Zainstaluj zależności
 echo -e "${GREEN}Instaluję wymagane pakiety...${NC}"
 pip install -r requirements.txt
+
+# Utwórz skrypt uruchomieniowy
+cat > run_scanner.sh << 'EOL'
+#!/bin/bash
+source venv/bin/activate
+python3 scanner.py
+deactivate
+EOL
+
+# Nadaj uprawnienia wykonywania
+chmod +x scanner.py run_scanner.sh
+
+echo -e "${GREEN}Instalacja zakończona!${NC}"
+echo -e "Aby uruchomić skaner, użyj polecenia: ${YELLOW}./run_scanner.sh${NC}"
+
+# Aktywuj środowisko i uruchom skaner
+echo -e "${GREEN}Uruchamiam skaner...${NC}"
+./run_scanner.sh
