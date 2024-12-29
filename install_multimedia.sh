@@ -87,7 +87,17 @@ install_multimedia() {
     apt-get install -y \
         libavcodec-extra \
         libdvd-pkg \
-        ubuntu-restricted-extras
+        libavcodec-extra \
+        libmpeg2-4 \
+        libxvidcore4 \
+        x264 \
+        libmp3lame0 \
+        libfaac0 \
+        libass9 \
+        libvpx7 \
+        libvorbis0a \
+        libtheora0 \
+        libx265-192
     check_error "Nie udało się zainstalować dodatkowych kodeków"
 
     # Konfiguracja libdvd-pkg
