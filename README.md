@@ -253,7 +253,7 @@ Czyli kamera będzie dostępna pod adresem 192.168.188.240
 Wszystkie urządzenia będą w tej samej sieci i będą mogły się bezpośrednio komunikować bez potrzeby routingu czy NAT.
 
 ```bash
-sudo apt-get install -y nmap netcat nftables
+sudo apt-get install -y nmap netcat nftables tcpdump
 sudo systemctl enable nftables
 sudo systemctl start nftables
 ```
