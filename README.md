@@ -216,7 +216,7 @@ najlepiej będzie skonfigurować prosty routing zamiast mostu.
 1. Najpierw przypisz stały adres IP do interfejsu USB-ETH, żeby kamera była widoczna bezpośrednio w sieci WiFi 192.168.188.0/24. W tym przypadku powinna mieć adres z tej samej puli.
 
 ```bash
-sudo ip addr add 192.168.188.250/32 dev enx0c0e764be017
+sudo ip addr add 192.168.188.240/32 dev enx0c0e764be017
 ```
 
 2. Włącz forwarding IP w systemie:
@@ -240,15 +240,15 @@ sudo nano /etc/network/interfaces
 ```
 auto enx0c0e764be017
 iface enx0c0e764be017 inet static
-    address 192.168.188.250
+    address 192.168.188.240
     netmask 255.255.255.0
 ```
 
 W tej konfiguracji:
 + Radxa WiFi: 192.168.188.203 
-+ Interfejs USB-ETH i kamera: 192.168.188.250
++ Interfejs USB-ETH i kamera: 192.168.188.240
 
-Czyli kamera będzie dostępna pod adresem 192.168.188.250
+Czyli kamera będzie dostępna pod adresem 192.168.188.240
 
 Wszystkie urządzenia będą w tej samej sieci i będą mogły się bezpośrednio komunikować bez potrzeby routingu czy NAT.
 
@@ -260,27 +260,70 @@ Możemy sprawdzić dostępność kamery Reolink na kilka sposobów:
 
 1. Najpierw podstawowy test łączności:
 ```bash
-ping 192.168.188.250
+ping 192.168.188.240
 ```
 
 2. Sprawdź czy kamera odpowiada na portach, które Reolink standardowo używa:
 ```bash
-nc -zv 192.168.188.250 80    # sprawdza port HTTP
-nc -zv 192.168.188.250 443   # sprawdza port HTTPS
-nc -zv 192.168.188.250 9000  # typowy port RTSP dla Reolink
+nc -zv 192.168.188.240 80    # sprawdza port HTTP
+nc -zv 192.168.188.240 443   # sprawdza port HTTPS
+nc -zv 192.168.188.240 9000  # typowy port RTSP dla Reolink
 ```
 
 3. Możesz też użyć nmap do sprawdzenia otwartych portów:
 ```bash
-sudo nmap -p- 192.168.188.250
+sudo nmap -p- 192.168.188.240
 ```
 
 4. W przeglądarce możesz spróbować otworzyć:
 ```
-http://192.168.188.250
+http://192.168.188.240
 ```
 
 Jeśli którykolwiek z tych testów się nie powiedzie, sprawdźmy:
 - Czy kamera jest zasilona
 - Czy kabel sieciowy jest dobrze podłączony
 - Czy interfejs enx0c0e764be017 ma poprawnie przypisany adres IP (możemy sprawdzić przez `ip addr show enx0c0e764be017`)
+
+
+## configure_eth
+
+Wyjaśnienie jak działa to rozwiązanie:
+
+1. Architektura sieci:
+   - Sieć WiFi (zewnętrzna): 192.168.188.0/24
+   - Sieć kamery (wewnętrzna): 192.168.1.0/24
+   - Radxa działa jako router między tymi sieciami
+
+2. Konfiguracja IP:
+   - Kamera w sieci wewnętrznej: 192.168.1.64
+   - Interfejs USB-ETH (brama dla kamery): 192.168.1.1
+   - Publiczny adres kamery w sieci WiFi: 192.168.188.240
+
+3. Jak działa przekierowanie:
+   - Gdy ktoś próbuje połączyć się z 192.168.188.240:
+     * DNAT zmienia adres docelowy na 192.168.1.64 (kamera)
+     * Pakiet trafia do kamery
+   - Gdy kamera odpowiada:
+     * SNAT zmienia adres źródłowy na adres WiFi Radxy
+     * Odpowiedź wraca do klienta
+
+2. Nadaj uprawnienia do wykonania:
+```bash
+chmod +x configure_eth.sh
+```
+3. Uruchom z sudo podając nazwę interfejsu USB-ETH:
+```bash
+sudo ./configure_eth.sh enx0c0e764be017
+```
+
+Skrypt automatycznie:
+- Konfiguruje interfejsy
+- Ustawia przekierowanie
+- Zapisuje trwałą konfigurację
+- Wyświetla podsumowanie
+
+Dzięki temu rozwiązaniu:
+- Nie tracimy połączenia SSH
+- Kamera ma stały, przewidywalny adres w sieci WiFi
+- Konfiguracja jest trwała (przetrwa restart)
