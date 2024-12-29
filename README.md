@@ -329,3 +329,59 @@ Dzięki temu rozwiązaniu:
 - Nie tracimy połączenia SSH
 - Kamera ma stały, przewidywalny adres w sieci WiFi
 - Konfiguracja jest trwała (przetrwa restart)
+
+
+
+## RULESET
+
+Z analizy tcpdump widzę, że kamera jest aktywna na adresie 192.168.1.97 i odpowiada na port 80, ale mamy problem z przekierowaniem. Spróbujmy innego podejścia:
+
+```bash
+sudo nft flush ruleset
+
+# NAT table
+sudo nft add table ip nat
+sudo nft 'add chain ip nat prerouting { type nat hook prerouting priority -100; }'
+sudo nft 'add chain ip nat postrouting { type nat hook postrouting priority 100; }'
+sudo nft 'add chain ip nat output { type nat hook output priority -100; }'
+
+# Reguły NAT - dodajemy reguły dla ruchu lokalnego
+sudo nft add rule ip nat prerouting ip daddr 192.168.188.240 tcp dport 80 dnat to 192.168.1.97:80
+sudo nft add rule ip nat output ip daddr 192.168.188.240 tcp dport 80 dnat to 192.168.1.97:80
+sudo nft add rule ip nat postrouting ip saddr 192.168.1.97 masquerade
+
+# Filter table
+sudo nft add table ip filter
+sudo nft 'add chain ip filter forward { type filter hook forward priority 0; }'
+sudo nft 'add chain ip filter input { type filter hook input priority 0; }'
+
+# Podstawowe reguły filtrowania
+sudo nft add rule ip filter input iif lo accept
+sudo nft add rule ip filter input ct state established,related accept
+sudo nft add rule ip filter forward ct state established,related accept
+sudo nft add rule ip filter forward iifname wlan0 oifname enx0c0e764be017 accept
+sudo nft add rule ip filter forward iifname enx0c0e764be017 oifname wlan0 accept
+```
+
+Dodatkowo, dodajmy debug poprzez logowanie pakietów:
+```bash
+sudo nft add rule ip nat prerouting ip daddr 192.168.188.240 log prefix \"PREROUTING-DEBUG: \"
+sudo nft add rule ip nat output ip daddr 192.168.188.240 log prefix \"OUTPUT-DEBUG: \"
+```
+
+Sprawdź logi:
+```bash
+dmesg | grep "DEBUG:"
+```
+
+I spróbuj ponownie:
+```bash
+curl -v http://192.168.188.240
+```
+
+Ta konfiguracja:
+1. Dodaje obsługę ruchu lokalnego (chain output)
+2. Poprawia reguły masquerade
+3. Dodaje pełne śledzenie stanu połączeń
+4. Dodaje logowanie dla debugowania
+   
